@@ -1,0 +1,838 @@
+---
+  title: "Growing fish of West Brook"
+output:
+  html_document:
+  df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+  Code adapted from 'MS_Analysis_3spp_4rivers_Patterns_from 2spp_bySpp.Rmd' in the 'westBrook-patterns' project
+  Ben did original analysis for this paper while at the 2019 ecology of stream fish meeting in Spain
+  Clumsily added code in the westBrook-Patterns doc while at the meeting.
+  Cleaning up code here to focus just on the growing fish part.
+  
+  Early analysis was in 'project/linkedModels/manuscriptAnalysis/MS_Analysis_3Spp_WB.Rmd' and a draft MS was 
+  in 'D:\BEN\Manuscripts\2017 salmonid growth in wb/growth in the west brook_2spp_WB.doc'
+
+```{r Load data, message=FALSE}
+library(itsadug)
+library(gratia)
+library(arm)
+library(relaimpo)
+library(GGally)
+# library(linkedModels)
+library(arrayhelpers)
+library(mgcv)
+library(tidyverse)
+library(gridExtra)
+
+
+#RECALCULATE gr for dataset. Filtering by maxSampleInterval in the creat ddddG step leaves in trailing lengths from the long samp intervals
+# d2 <- d2 %>%
+#   group_by(tag) %>%
+#   # arrange(tag,sampleNumber) %>%
+#   mutate(lagObservedWeight = lead(observedWeight),
+#           lagObservedLength = lead(observedLength),
+#           grWeight = exp(lagObservedWeight - observedWeight)/as.numeric((lagDetectionDate - detectionDate)),
+#           grLength = (lagObservedLength - observedLength)/as.numeric((lagDetectionDate - detectionDate))
+#   )  %>%
+#   ungroup()
+
+
+load("D:/projects/linkedModels/data/cd_west_1997.RData")
+cd <- cd %>% mutate(observedWeight = ifelse(observedWeight == -9999.9, NA, observedWeight),
+                    lagObservedWeight = ifelse(lagObservedWeight == -9999.9, NA, lagObservedWeight))
+```
+
+```{r dataframe d2}
+load("D:/projects/linkedModels/data/out/dG_1530971738_crossValFALSE_bkt1997_Nimble.RData")
+
+# input data
+d1 <- ddG[[1]][[1]]
+d2 <- ddG[[1]][[2]]
+meanSampleIntervalMean <- data.frame( meanSampleInterval = colMeans(d1$sampleIntervalMean), season = 1:d1$nSeasons )
+
+#RECALCULATE gr for dataset. Filtering by maxSampleInterval in the creat ddddG step leaves in trailing lengths from the long samp intervals
+d2 <- d2 %>%
+  group_by(tag) %>%
+  # arrange(tag,sampleNumber) %>%
+  mutate( lagObservedWeight = lead(observedWeight),
+          lagObservedLength = lead(observedLength),
+          grWeight = exp(lagObservedWeight - observedWeight)/as.numeric((lagDetectionDate - detectionDate)),
+          grLength = (lagObservedLength - observedLength)/as.numeric((lagDetectionDate - detectionDate))
+  )  %>%
+  ungroup()
+
+```
+
+```{r load allFishBySpeciesYOY}
+
+load("D:/projects/linkedModels/data/out/rawCountsAndMasses.RData")
+allFishBySpeciesYOY <- allFishBySpeciesYOY %>% ungroup()
+```
+
+
+```{r theme_publication}
+
+theme_publication <- function(base_size=14, base_family="") {
+  library(grid)
+  library(ggthemes)
+  (theme_foundation(base_size=base_size, base_family=base_family)
+    + theme(plot.title = element_text(face = "bold",
+                                      size = rel(1.2), hjust = 0.5),
+            text = element_text(),
+            panel.background = element_rect(colour = NA),
+            plot.background = element_rect(colour = NA),
+            axis.title = element_text(face = "bold",size = rel(1)),
+            axis.title.y = element_text(angle=90,vjust =2),
+            axis.title.x = element_text(vjust = -0.2),
+            axis.text = element_text(),
+            axis.line = element_line(colour="black"),
+            axis.ticks = element_line(),
+            panel.grid.major = element_line(colour="#f0f0f0"),
+            panel.grid.minor = element_blank(),
+            legend.key = element_rect(colour = NA),
+            legend.position = "bottom",
+            legend.direction = "horizontal",
+            legend.key.size= unit(0.2, "cm"),
+            #    legend.margin = unit(0, "cm"),
+            legend.title = element_text(face="italic"),
+            plot.margin=unit(c(10,5,5,5),"mm"),
+            strip.background=element_rect(colour="#f0f0f0",fill="#f0f0f0"),
+            strip.text = element_text(face="bold"),
+            panel.border = element_rect(colour = "black")
+    ))
+  
+}
+```
+
+```{r figs 3,4, flow and temp}
+d2$riverOrderedGG <- factor(d2$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+d2$seasonGG <- factor(d2$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+
+d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+  filter(riverOrderedGG == "West Brook" ) %>%
+  summarize(meanF = mean(meanFlow, na.rm=T),
+            sdF = sd(meanFlow, na.rm=T)) %>%
+  ggplot(aes(year,meanF)) +
+  geom_point(size = 3) +
+  geom_line() +
+ # geom_smooth(method = 'lm', se=F) +
+  geom_errorbar( aes(ymin = meanF - sdF, ymax = meanF + sdF, width = 0.33 ) ) +
+  labs( x = "Year", y = "Stream flow (m^3/s)" ) +
+  theme_publication(base_size = 24) +
+  facet_wrap(~ seasonGG)
+
+ggsave('figures/flow.png', width = 11, height = 7, units='in')
+
+meanEnv <- 
+  d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+    filter( riverOrderedGG == "West Brook" ) %>%
+    summarize(meanF = mean(meanFlow, na.rm=T),
+              sdF = sd(meanFlow, na.rm=T),
+              meanT = mean(meanTemperature, na.rm=T),
+              sdT = sd(meanTemperature, na.rm=T)) 
+
+ggplot(meanEnv, aes(meanT,meanF) ) +
+  geom_point( size = 3 ) +
+  geom_smooth(method = 'lm', se=F) +
+  labs( x = "Stream Temperature", y = "Stream flow (m^3/s)" ) +
+  theme_publication() +
+  facet_wrap(~seasonGG)
+
+meanEnv %>%
+  select(seasonGG,meanF,meanT) %>%
+  group_by(seasonGG) %>%
+  summarize(cor(meanF,meanT))
+
+
+lmFunctionF <- function(df){ lm( meanF ~ year, data=df ) }
+
+flowMods <- d2 %>%
+  group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanF = mean(meanFlow, na.rm=T),
+            sdF = sd(meanFlow, na.rm=T)) %>%
+  group_by( riverOrderedGG, seasonGG ) %>%
+  nest() %>%
+  mutate( model = map(data,lmFunctionF) )
+
+flowSlopesTidy <- flowMods %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  filter( term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*",""))
+
+#save(flowSlopesTidy,file = 'D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
+
+#################
+
+
+lmFunction <- function(df){ lm( meanT ~ year, data=df ) }
+
+tempMods <- d2 %>%
+  group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T)) %>%
+  group_by( riverOrderedGG, seasonGG ) %>%
+  nest() %>%
+  mutate( model = map(data,lmFunction) )
+
+tempSlopesTidy <- tempMods %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  filter( term == 'year') %>%
+  mutate( sig = ifelse(p.value < 0.05,"*",""))
+
+d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T)) %>%
+  filter(riverOrderedGG == "West Brook") %>%
+  ggplot( aes(year,meanT) ) +
+  geom_smooth(method = 'lm', se=F, color = 'darkgrey') +
+  geom_point( size = 3 ) +
+  geom_line() +
+  geom_errorbar( aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 ) ) +
+  labs( x = "Year", y = "Stream temperature (C)" ) +
+  geom_text(data=tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=17.5, label=paste(round(estimate,2),sig))) +
+  theme_publication(base_size = 24) +
+  facet_wrap(~seasonGG)
+
+ggsave('figures/3Spp_WB/temp.png', width = 11, height = 7, units='in')
+
+d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+  summarize(meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T)) %>%
+  filter(riverOrderedGG == "West Brook") %>%
+  ggplot(aes(year,meanT, group = seasonGG, color = seasonGG)) +
+  geom_smooth(method = 'lm', se=F) +
+  #geom_point(aes(shape = factor(seasonGG), size = 2)) +
+  geom_point(size = 3) +
+  #geom_line() +
+  geom_errorbar( aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 ) ) +
+  labs( x = "Year", y = "Stream temperature (C)" ) +
+  # geom_text(data=tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=17.5, label=paste(round(estimate,2),sig))) +
+  theme_publication(base_size = 24)
+
+ggsave('figures/tempNoFacet.png', width = 11, height = 7, units='in')
+
+save(tempSlopesTidy,file = 'D:/projects/westBrook-growingFish/data/out/tempSlopesTidy.RData')
+```
+
+
+```{r adjusted counts}
+allFishBySpeciesYOY$riverOrderedGG <- factor(allFishBySpeciesYOY$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+allFishBySpeciesYOY$seasonGG <- factor(allFishBySpeciesYOY$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+allFishBySpeciesYOY$speciesGG <- factor(allFishBySpeciesYOY$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+#sum across YOY
+allFishBySpecies <- allFishBySpeciesYOY %>%
+   group_by(river,season,year,species) %>%
+   summarize( nAllFishBySpecies = sum(nAllFishBySpeciesYOY, na.rm=T),
+                massAllFishBySpecies = sum(massAllFishBySpeciesYOY, na.rm=T))
+allFishBySpecies$seasonGG <- factor(allFishBySpecies$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+allFishBySpeciesYOY <- left_join(allFishBySpeciesYOY,allFishBySpecies)
+
+
+# sum across YOY and species
+   allFish <- allFishBySpeciesYOY %>%
+     group_by(river,season,year) %>%
+     summarize( nAllFish = sum(nAllFishBySpeciesYOY, na.rm=T),
+                massAllFish = sum(massAllFishBySpeciesYOY, na.rm=T))
+   cd <- left_join(cd,allFish)
+
+allFish$riverOrderedGG <- factor(allFish$river,
+                         levels=c('west brook', 'wb jimmy', 'wb mitchell',"wb obear"),
+                         labels = c("West Brook","Open Large","Open Small","Isolated Small"), ordered = T)
+allFish$seasonGG <- factor(allFish$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+#########
+
+ggplot(allFishBySpeciesYOY %>% filter(riverOrderedGG == "West Brook"), aes(year,nAllFishBySpecies)) +
+  geom_point(aes(color = speciesGG)) +
+  geom_line(aes(color = speciesGG)) +
+  geom_line( data = allFish %>% filter(riverOrderedGG == "West Brook"), aes(year,nAllFish) ) +
+  theme_publication() +
+  labs( x = "Year", y = "Count" ) +
+  facet_wrap(~ seasonGG )#, scales = "free_y" )
+
+ggsave('figures/counts.png')
+
+ggplot(allFishBySpeciesYOY %>% filter(riverOrderedGG == "West Brook", year >=2000), aes(year,nAllFishBySpecies)) +
+  geom_point(aes(color = speciesGG), size=3) +
+#  geom_line(aes(color = speciesGG)) +
+  geom_smooth(aes(color = speciesGG), se=FALSE,method='lm') +
+  geom_line( data = allFish %>% filter(riverOrderedGG == "West Brook", year >=2000), aes(year,nAllFish), size=1.25, color='darkgrey', linetype = 5 ) +
+  scale_y_continuous(limits = c(0,NA)) +
+  theme_publication(base_size = 24) +
+  labs( x = "Year", y = "Estimated abundance", color = "Species" ) +
+  scale_color_grey(start = 0, end = 0.9) +
+  facet_wrap( ~ seasonGG , scales = "free_y" )
+
+ggsave('figures/countsWSlope.png', width = 11, height = 9, units='in')
+
+nSlopes <- allFishBySpeciesYOY %>%
+  filter(riverOrderedGG == "West Brook", year >= 2000) %>%
+  group_by( species,  season ) %>%
+  nest()
+
+nModel <- function(df){
+  lm( nAllFishBySpecies ~ year, data = df )
+}
+
+nSlopes <- nSlopes %>%
+  mutate(model = map(data, nModel))
+
+nSlopesTidy <- nSlopes %>%
+  mutate(glance = map(model, broom::tidy)) %>% 
+  unnest(glance) %>%
+  filter(term == 'year')
+
+save(nSlopesTidy,file = 'D:/projects/westBrook-growingFish/data/out/nSlopesTidy.RData')
+########################
+# add in sampleNumber
+tmp <- d2 %>% distinct(season,year,sampleNumber)
+allFishBySpeciesYOY <- left_join(allFishBySpeciesYOY,tmp)
+allFish <- left_join(allFish,tmp)
+
+ggplot(allFishBySpeciesYOY, aes(sampleNumber,nAllFishBySpeciesYOY)) +
+  geom_point(aes(color = speciesGG)) +
+  geom_line(aes(color = speciesGG)) +
+  geom_line( data = allFish, aes(sampleNumber,nAllFish) ) +
+  theme_publication() +
+  labs( x = "SampleNumber", y = "Count" ) +
+  facet_wrap(  ~riverOrderedGG )#, scales = "free_y" )
+
+
+
+```
+
+
+```{r mean lengths}
+
+# Has mean size changed over time?
+means <- 
+  cd %>% mutate(age = year - cohort ) %>%
+  filter(riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016) %>%
+  group_by(species,ageInSamples,year,season,age) %>%
+  summarize(meanLen = mean(observedLength,na.rm = TRUE),
+            sdLen = sd(observedLength,na.rm = TRUE),
+            meanGR = mean(grLength,na.rm = TRUE),
+            sdGR = sd(grLength,na.rm = TRUE)
+  )
+
+lenSlopes <- means %>%
+  group_by(species, ageInSamples, season, age) %>%
+  nest() %>%
+  ungroup()
+
+lengthModel <- function(df){
+  lm(meanLen ~ year, data = df)
+}
+
+grModel <- function(df){
+  lm(meanGR ~ year, data = d )
+}
+
+lenSlopes <- lenSlopes %>%
+  mutate(model = map(lenSlopes$data, lengthModel),
+         modelGR = map(lenSlopes$data, grModel))
+
+###################################
+######### len here, gr below ######
+lenSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(model, broom::tidy)) %>% 
+  #unnest(glance, .drop = TRUE) %>%
+  unnest(glance) %>%
+  filter(term == 'year') %>%
+  mutate(sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate(sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate(sig = ifelse(p.value < 0.0001,"***",sig))
+
+
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+lenSlopesTidy$seasonGG <- factor(lenSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+lenSlopesTidy$speciesGG <- factor(lenSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(means %>% filter(year >= 2000, species != 'ats'), aes(year,meanLen, group= speciesGG)) +
+  geom_point(aes(color = speciesGG), size = 4) +
+  geom_smooth(aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs(x = "Year", y = "Mean body length (mm)" ) +
+  
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age<2), 
+            aes(x=2000,y=225, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age<2), 
+            aes(x=2000,y=195, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age==2), 
+            aes(x=2011.8,y=104, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age==2), 
+            aes(x=2011.8,y=74, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+
+  
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        #  legend.position = "right",
+        #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age, scales='free')
+
+ggsave('./figures/meanSizes.png', width = 11, height = 11, units='in')
+
+# one season/year only
+ggplot(means %>% filter(year >= 2000, species != 'ats', ageInSamples == 8), aes(year,meanLen, group= speciesGG)) +
+  geom_point(aes(color = speciesGG), size = 4) +
+  geom_smooth(aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs(x = "Year", y = "Mean body length (mm)" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        #  legend.position = "right",
+        #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+ggsave('./figures/meanSizesAIS_1.png', width = 11, height = 8, units='in')
+
+# is a model with salmon presence absence better than a year model?
+means$ats01 <- ifelse(means$year <= 2005, 1, 0)
+
+modMeans1 = lm(meanLen ~ year * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans2 = lm(meanLen ~ year * factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans3 = lm(meanLen ~ factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans4 = lm(meanLen ~ factor(ats01) * year, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+AIC(modMeans1, modMeans2, modMeans3, modMeans4)
+
+# one season/year only
+ggplot(means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1), aes(year,meanLen, group= speciesGG)) +
+  geom_point(aes(color = speciesGG), size = 4) +
+  geom_smooth(aes(group = factor(ats01)), color = 'black', se = FALSE, method = 'lm') +
+  labs(x = "Year", y = "Mean body length (mm)" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        #  legend.position = "right",
+        #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/meanSizesAIS_1_ats01.png', width = 11, height = 8, units='in')
+
+
+
+# mean increases 
+lenSlopesTidy %>%
+  filter(species != 'ats') %>%
+  summarise(means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+lenSlopesTidy %>%
+  group_by(species) %>%
+  summarise(means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(lenSlopesTidy %>% filter(species != 'ats'), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(size = 5) +
+  geom_smooth(method='lm', se=FALSE, size = 1.5) +
+  scale_x_continuous(breaks = 1:10, labels = c('0 Fall','0 Winter','1 Spring','1 Summer','1 Fall','1 Winter','2 Spring','2 Summer','2 Fall','2 Winter')) +
+  labs(x = "Age Season", y = "Slope of mean body length over years" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 40, hjust = 1)) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) 
+
+ggsave(paste0('figures/meanLengthsOverAge.png'), width = 11, height = 10, units='in')
+
+# species diff in increases in length?
+sppEffect <- (lm(estimate ~ ageInSamples * (species), data = lenSlopesTidy))
+summary(sppEffect)
+anova(sppEffect)
+
+# mean diff in slopes btw bkt and bnt
+lenSlopesTidy %>%
+  filter(species != 'ats') %>%
+  group_by(species) %>%
+  summarise(means = mean(estimate))
+
+#####################################  
+#################################
+# growth rate
+grSlopesTidy <- lenSlopes %>%
+  mutate(glance = map(modelGR, broom::tidy)) %>% 
+  unnest(glance, .drop = TRUE) %>%
+  filter(term == 'year') %>%
+  mutate(sig = ifelse(p.value < 0.05,"*","")) %>%
+  mutate(sig = ifelse(p.value < 0.001,"**",sig)) %>%
+  mutate(sig = ifelse(p.value < 0.0001,"***",sig))
+
+##
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+grSlopesTidy$seasonGG <- factor(grSlopesTidy$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+grSlopesTidy$speciesGG <- factor(grSlopesTidy$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(means %>% filter(year >= 2000, species != 'ats'), aes(year,meanGR, group= speciesGG)) +
+  geom_point(aes(color = speciesGG), size = 4) +
+  geom_smooth(aes(color = speciesGG), se = FALSE, method = 'lm') +
+  labs(x = "Year", y = "Mean growth rate (mm/d)" ) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age<2), 
+            aes(x=2000,y=0.68, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age<2), 
+            aes(x=2000,y=0.55, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  
+  geom_text(data = grSlopesTidy %>% filter(species == 'bkt', age==2), 
+            aes(x=2011.5,y=0.64, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
+  geom_text(data = grSlopesTidy %>% filter(species == 'bnt', age==2), 
+            aes(x=2011.5,y=0.51, label=paste(round(estimate,4),sig)),hjust = 0, size = 6)+
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        #  legend.position = "right",
+        #   legend.direction = "vertical"
+        legend.position = "bottom",
+        legend.direction = "horizontal") + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG~age)
+
+ggsave('./figures/meanGRs.png', width = 11, height = 11, units='in')
+
+# mean increases 
+grSlopesTidy %>%
+  filter(species != 'ats') %>%
+  summarise(means = mean(estimate),
+             sd = sd(estimate))
+
+# mean increases by species
+grSlopesTidy %>%
+  group_by(species) %>%
+  summarise(means = mean(estimate),
+             sd = sd(estimate))
+
+# do increases (slopes) increase over age? Yes
+ggplot(grSlopesTidy %>% filter(species != 'ats'), aes((ageInSamples),estimate, color=speciesGG)) +
+  geom_point(size = 5) +
+  geom_smooth(method='lm', se=FALSE) +  
+  geom_hline(yintercept = 0) +
+  scale_x_continuous(breaks = 1:10, labels = c('0 Fall','0 Winter','1 Spring','1 Summer','1 Fall','1 Winter','2 Spring','2 Summer','2 Fall','2 Winter')) +
+  labs(x = "Age Season", y = "Slope of mean growth rate over years" ) +
+  theme_publication(base_size = 24) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal",
+        axis.text.x = element_text(angle = 40, hjust = 1)) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) 
+
+ggsave('./figures/meanGRsOverAge.png', width = 11, height = 11, units='in')
+
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bkt')))
+summary(lm(estimate~ageInSamples, data = grSlopesTidy %>% filter(species=='bnt')))
+
+# species diff in increases in gr?
+sppEffectGR <- (lm(estimate ~ ageInSamples * (species), data = grSlopesTidy))
+summary(sppEffectGR)
+anova(sppEffectGR)
+
+# mean diff in slopes btw bkt and bnt
+grSlopesTidy %>%
+  filter(species != 'ats') %>%
+  group_by(species) %>%
+  summarise(means = mean(estimate))
+
+
+```
+
+```{r size-dep imm or mort? For Spain talk}
+
+### for losses
+
+cd01 <-  cd %>%
+  filter(knownZ == 1) %>%
+  group_by(tagIndex) %>%
+  mutate(first = min(sampleNumber),
+         firstObs = sampleNumber == first,
+         last = max(sampleNumber),
+         lastObs = sampleNumber == last,
+         notLastObs = !lastObs,
+         nObs = n(),
+         age = year - cohort
+  ) %>%
+  ungroup()
+
+meansByAIS <- cd01 %>%
+  group_by(species, ageInSamples, cohort, river) %>%
+  summarise(meanLen = mean(observedLength, na.rm =T),
+            sdLen = sd(observedLength, na.rm = T),
+            n = n())
+cd01 <- left_join(cd01, meansByAIS) %>%
+  mutate(observedLengthStd = (observedLength - meanLen) / sdLen,
+         cohortStd = cohort - 2007)
+
+#cd %>% select(tagIndex,sampleNumber, firstObs,lastObs, knownZ, observedLength) %>% head(50) %>% as.data.frame()
+cd01Mod <- cd01 %>% filter(species %in% c('bkt', 'bnt'), river == 'west brook', ageInSamples %in% 1:10, cohort %in% 2000:2014)
+
+ggplot(cd01Mod, aes(observedLengthStd, notLastObs*1, color = factor(species), group = factor(species))) +
+  geom_point(alpha = 0.01) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE) +
+  # scale_color_viridis_c() +
+  facet_wrap(~ cohort, scales = 'free')
+
+#### by species and ageInSamples
+
+sensSlopes <- cd01Mod %>%
+  group_by(species, ageInSamples ) %>%
+  nest()
+
+survModel <- function(df){
+  glm(notLastObs*1 ~ observedLengthStd + cohortStd, family = 'binomial', data = df )
+}
+enterModel <- function(df){
+  glm(firstObs*1 ~ observedLengthStd + cohortStd, family = 'binomial', data = df )
+}
+
+sensSlopes <- sensSlopes %>%
+  mutate(modelSurv = map(sensSlopes$data, survModel),
+         modelEnter = map(sensSlopes$data, enterModel))
+
+sensSlopesTidy <- sensSlopes %>%
+  mutate(surv = map(modelSurv, broom::tidy),
+         enter = map(modelEnter, broom::tidy)) %>% 
+  unnest(surv, enter, .drop = TRUE) %>%
+  filter(term == 'cohortStd') %>% # cohort effect
+  rename(estimateSurv = estimate, estimateEnter = estimate1) %>%
+  select(species,ageInSamples,estimateSurv, estimateEnter) #%>%
+#gather("type", "estimate", estimateSurv:estimateEnter)
+
+ggplot(sensSlopesTidy, aes(ageInSamples, estimate, color = type)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~species)
+
+```
+
+```{r dummy graphs for Spain talk}
+
+sizesForGraph <- data.frame(year = c(2000,2015), surv = c(100, 150))
+ggplot(sizesForGraph, aes(year,surv)) +
+  geom_line(size = 2) +
+  labs(x = 'Year', y = 'Mean body length (mm)') +
+  ylim(80,200) +
+  theme_publication(base_size = 36)
+ggsave('./figures/sizesDummy.png', width = 11, height = 11, units='in')
+
+
+survForGraph <- data.frame(size = c(-2,2), surv = c(0.25,0.75))
+ggplot(survForGraph, aes(size,surv)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of seen again') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pSurvivalDummy.png', width = 11, height = 11, units='in')
+
+firstForGraph <- data.frame(size = c(-2,2), surv = c(0.35,0.65))
+ggplot(firstForGraph, aes(size,surv)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of first observation') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pFirstDummy.png', width = 11, height = 11, units='in')
+
+
+sizesForGraph <- data.frame(year = c(2000,2015), surv = c(100, 150))
+ggplot(sizesForGraph, aes(year,surv)) +
+  geom_line(size = 3) +
+  labs(x = 'Year', y = 'Mean body length (mm)') +
+  ylim(80,200) +
+  theme_publication(base_size = 36)
+ggsave('./figures/sizesDummy.png', width = 11, height = 11, units='in')
+
+#### show interactions
+
+survForGraph <- data.frame(ind = c(1,1,2,2,3,3), size = c(-2,2), surv = c(0.52,0.55,0.51,0.24,0.54,0.82))
+ggplot(survForGraph, aes(size,surv, group = ind)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of seen again') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pSurvivalDummy3.png', width = 11, height = 11, units='in')
+
+firstForGraph <- data.frame(ind = c(1,1,2,2,3,3), size = c(-2,2), surv = c(0.42,0.45,0.41,0.14,0.44,0.72))
+ggplot(firstForGraph, aes(size,surv, group = ind)) +
+  geom_line(size = 2) +
+  labs(x = 'Standardized length', y = 'Probability of first observation') +
+  theme_publication(base_size = 36)
+ggsave('./figures/pFirstDummy3.png', width = 11, height = 11, units='in')
+
+
+
+```
+
+```{r get betas from growth model for sensitivities}
+load("D:/projects/linkedModels/data/out/allBetas.RData") #loads df 'q'
+qFig1 <- q %>% filter(riverGG == 'WB', species %in% c('bkt','bnt'))
+qFig1$season <- as.numeric(as.character(qFig1$season))
+qFig1$isYOY <- as.numeric(as.character(qFig1$isYOY))
+qFig <- qFig1 %>%
+  mutate(varText = tolower(betaGG)) %>%
+  mutate(varText = ifelse(varText == 'temp*flow','temp:flow', varText)) %>%
+  mutate(varText = ifelse(varText == 'bnt*bkt','bkt:bnt', varText)) %>%
+  select(isYOY,season,species,median,varText)
+qFig$seasonGG <- factor(qFig$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+#get slopes of env variables
+
+load('D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
+flowSlopesTidy2 <- flowSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'flow')
+load('D:/projects/linkedModels/data/out/tempSlopesTidy.RData')
+tempSlopesTidy2 <- tempSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'temp')
+load('D:/projects/linkedModels/data/out/nSlopesTidy.RData')
+nSlopesTidy2 <- nSlopesTidy %>% select(estimate, season, species) %>% mutate(varText = species)
+nSlopesTidy2$seasonGG <- factor(nSlopesTidy2$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+nSlopesTidy2 <- nSlopesTidy2 %>% select(estimate,seasonGG,varText)
+
+allSlopesTidy <- bind_rows(nSlopesTidy2, tempSlopesTidy2, flowSlopesTidy2)
+
+allSlopesTidyWBetas <- left_join(qFig, allSlopesTidy, by = c('seasonGG', 'varText')) %>% mutate(sens = median * estimate)
+
+ggplot(allSlopesTidyWBetas%>%filter(!is.na(sens), varText != 'ats'), aes(seasonGG, sens, color = varText)) +
+  geom_point() +
+  facet_grid(species + isYOY ~ varText, scales = 'free')
+```
+
+
+```{r }
+############# 1st attempt at imm em
+mod1 <- glm(notLastObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+#mod2 <- glm(notLastObs*1 ~ observedLengthStd * factor(cohortStd) * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+mod3 <- glm(notLastObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+
+AIC(mod1,mod3)
+
+summary(mod1)
+anova(mod1, test="Chi")
+
+pred <- expand.grid(observedLengthStd = seq(-2,2, length.out = 50), cohortStd = unique(cd01Mod$cohortStd), species = c('bkt', 'bnt'), ageInSamples = unique(cd01Mod$ageInSamples))
+
+pred$pred <- predict.glm(mod1, newdata = pred, type = 'response')
+
+u <- cd01Mod %>% distinct(age, season, ageInSamples) %>% arrange(ageInSamples) %>% filter(!(age==2 & ageInSamples == 6))
+pred <- left_join(pred, u)
+
+pred$seasonGG <- factor(pred$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+pred$cohort <- pred$cohortStd + 2007
+pred$speciesGG <- factor(pred$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(pred, aes(observedLengthStd, pred, color = (cohortStd), group = (cohortStd))) +
+  geom_point() +
+  scale_color_viridis_c() +
+  scale_y_continuous("Probability of survival") +
+  facet_grid(species ~ ageInSamples, scales = 'free')
+
+ggplot(pred %>% filter(cohortStd %in% 0, age < 3), aes(observedLengthStd, pred, color = speciesGG)) +
+  geom_point(size = 2) +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of seen again") +
+  theme_publication(base_size = 28) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal"
+  ) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/pSurvival.png', width = 11, height = 11, units='in')
+
+
+
+################################
+# gains - immigration, firstObs
+
+ggplot(cd01Mod, aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
+  geom_jitter(alpha = 0.1) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE) +
+  # scale_color_viridis_c() +
+  xlim(c(-2.75,2.75)) +
+  facet_grid(ageInSamples ~ cohort)
+
+ggplot(cd01Mod%>%filter(ageInSamples == 3), aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
+  geom_jitter(alpha = 0.1) +
+  geom_smooth(method = "glm", 
+              method.args = list(family = "binomial"), 
+              se = FALSE) +
+  # scale_color_viridis_c() +
+  xlim(c(-2.75,2.75)) +
+  facet_wrap(~ cohort)
+
+modi1 <- glm(firstObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi2 <- glm(firstObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi3 <- glm(firstObs*1 ~ observedLengthStd * species , family = 'binomial', data = cd01Mod)
+modi4 <- glm(firstObs*1 ~ observedLengthStd * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi5 <- glm(firstObs*1 ~ observedLengthStd, family = 'binomial', data = cd01Mod)
+
+AIC(modi1,modi2,modi3,modi4,modi5) %>% rownames_to_column() %>% arrange(AIC)
+
+summary(modi1)
+anova(modi1, test="Chi")
+###
+predi <- expand.grid(observedLengthStd = seq(-2,2, length.out = 50), cohortStd = unique(cd01Mod$cohortStd), species = c('bkt', 'bnt'), ageInSamples = unique(cd01Mod$ageInSamples))
+
+predi$pred <- predict.glm(modi1, newdata = predi, type = 'response')
+
+u <- cd01Mod %>% distinct(age, season, ageInSamples) %>% arrange(ageInSamples) %>% filter(!(age==2 & ageInSamples == 6))
+predi <- left_join(predi, u)
+
+ggplot(predi, aes(observedLengthStd, pred, color = (cohortStd), group = (cohortStd))) +
+  geom_point() +
+  scale_color_viridis_c() +
+  scale_y_continuous("Probability of first observation") +
+  facet_grid(species ~ ageInSamples, scales = 'free')
+
+predi$seasonGG <- factor(predi$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+predi$cohort <- predi$cohortStd + 2007
+predi$speciesGG <- factor(predi$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+ggplot(predi %>% filter(cohortStd %in% c(0), species == 'bkt', age < 3), aes(observedLengthStd, pred)) +
+  geom_point() +
+  scale_color_viridis_c() +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of first observation") +
+  theme_publication() +
+  facet_grid(seasonGG ~ age)
+
+ggplot(predi %>% filter(cohortStd %in% c(0), age < 3), aes(observedLengthStd, pred, color = speciesGG)) +
+  geom_point(size = 2) +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of first observation") +
+  theme_publication(base_size = 28) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal"
+  ) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/pFirstObs.png', width = 11, height = 11, units='in')
+```
+
+
+
+
+
+
