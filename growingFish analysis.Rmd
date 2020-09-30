@@ -127,26 +127,6 @@ d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
 
 ggsave('figures/flow.png', width = 11, height = 7, units='in')
 
-meanEnv <- 
-  d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
-    filter( riverOrderedGG == "West Brook" ) %>%
-    summarize(meanF = mean(meanFlow, na.rm=T),
-              sdF = sd(meanFlow, na.rm=T),
-              meanT = mean(meanTemperature, na.rm=T),
-              sdT = sd(meanTemperature, na.rm=T)) 
-
-ggplot(meanEnv, aes(meanT,meanF) ) +
-  geom_point( size = 3 ) +
-  geom_smooth(method = 'lm', se=F) +
-  labs( x = "Stream Temperature", y = "Stream flow (m^3/s)" ) +
-  theme_publication() +
-  facet_wrap(~seasonGG)
-
-meanEnv %>%
-  select(seasonGG,meanF,meanT) %>%
-  group_by(seasonGG) %>%
-  summarize(cor(meanF,meanT))
-
 
 lmFunctionF <- function(df){ lm( meanF ~ year, data=df ) }
 
@@ -168,7 +148,7 @@ flowSlopesTidy <- flowMods %>%
 #save(flowSlopesTidy,file = 'D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
 
 #################
-
+# Temperature
 
 lmFunction <- function(df){ lm( meanT ~ year, data=df ) }
 
@@ -187,16 +167,16 @@ tempSlopesTidy <- tempMods %>%
   filter( term == 'year') %>%
   mutate( sig = ifelse(p.value < 0.05,"*",""))
 
-d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+d2 %>% group_by(riverOrderedGG, seasonGG, year) %>%
   summarize(meanT = mean(meanTemperature, na.rm=T),
             sdT = sd(meanTemperature, na.rm=T)) %>%
   filter(riverOrderedGG == "West Brook") %>%
-  ggplot( aes(year,meanT) ) +
+  ggplot(aes(year, meanT)) +
   geom_smooth(method = 'lm', se=F, color = 'darkgrey') +
-  geom_point( size = 3 ) +
+  geom_point( size = 3) +
   geom_line() +
-  geom_errorbar( aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 ) ) +
-  labs( x = "Year", y = "Stream temperature (C)" ) +
+  geom_errorbar(aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 )) +
+  labs(x = "Year", y = "Stream temperature (C)") +
   geom_text(data=tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=17.5, label=paste(round(estimate,2),sig))) +
   theme_publication(base_size = 24) +
   facet_wrap(~seasonGG)
@@ -220,6 +200,89 @@ d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
 ggsave('figures/tempNoFacet.png', width = 11, height = 7, units='in')
 
 save(tempSlopesTidy,file = 'D:/projects/westBrook-growingFish/data/out/tempSlopesTidy.RData')
+```
+
+```{r seasonal temp/flow for fixed seasonal window}
+# downloaded data file from osensei at '/home/projects/westbrook/dataIn/originalData/westbrook_core_environmental_data.csv'
+
+envData <- read.csv('D:/projects/westBrook-growingFish/data/in/westbrook_core_environmental_data.csv')
+
+envDataOutT <- envData %>% 
+  filter(Drainage == 'WEST', River == 'WEST BROOK') %>%
+  select(Date, Avg.Daily.Temp)
+
+# for use in tse.ecoshdes.org
+write.csv(envDataOutT, 'D:/projects/westBrook-growingFish/data/out/envDataT.csv')
+
+envDataOutF <- envData %>% 
+  filter(Drainage == 'WEST', River == 'WEST BROOK') %>%
+  select(Date, Avg.Daily.Discharge)
+
+# for use in tse.ecoshdes.org
+write.csv(envDataOutF, 'D:/projects/westBrook-growingFish/data/out/envDataF.csv')
+
+#Patterns in tse generally match figs 3,4 from above, but still is probably best to use envData for these graphs rather than means across individuals in d2 as above.
+```
+
+
+
+```{r flow_temp correlation}
+
+meanEnv <- 
+  d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+    filter(riverOrderedGG == "West Brook") %>%
+    summarize(meanF = mean(meanFlow, na.rm=T),
+              sdF = sd(meanFlow, na.rm=T),
+              meanT = mean(meanTemperature, na.rm=T),
+              sdT = sd(meanTemperature, na.rm=T),
+              n = n()) 
+
+ggplot(meanEnv, aes(meanT, meanF, group = seasonGG, color = seasonGG)) +
+  geom_point(size = 3) +
+  geom_smooth(method = 'lm', se = F) +
+  geom_errorbar(aes(ymin = meanF - sdF, ymax = meanF + sdF, width = 0.33)) +
+  geom_errorbar(aes(xmin = meanT - sdT, xmax = meanT + sdT, width = 0.025), orientation = "y") +
+  labs(x = "Stream Temperature (C)", y = "Stream flow (m^3/s)") +
+  theme_publication() 
+
+ggsave('figures/tempFlowCorr.png', width = 11, height = 7, units='in')
+
+meanEnv %>%
+  select(seasonGG,meanF,meanT) %>%
+  group_by(seasonGG) %>%
+  summarize(cor(meanF,meanT))
+
+# by day of sample
+dOS <- d2 %>%
+  filter(river == "west brook", area == "inside") %>%
+  distinct(riverOrderedGG, seasonGG, year, yday, meanTemperature, meanFlow) %>%
+  group_by(riverOrderedGG, seasonGG, year, yday) %>%
+  summarize(meanF = mean(meanFlow, na.rm=T),
+            sdF = sd(meanFlow, na.rm=T), # these are not the right sd's for a MS fig, based on individuals
+            meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T),
+            meanYday = mean(yday),
+            n = n()) %>%
+  arrange(riverOrderedGG, year, meanYday)
+
+minDOS <- dOS %>%
+  summarise(minDOS = min(meanYday)) 
+
+dOS <- left_join(dOS, minDOS) %>%
+  mutate(dayOfSample = meanYday - minDOS) %>%
+  arrange(riverOrderedGG, year, dayOfSample)
+  
+  
+dOS %>% 
+  ggplot(aes(meanT, meanF, color = dayOfSample)) +
+    geom_point() +
+    facet_wrap(~ seasonGG, scales = 'free')
+
+dOS %>% 
+  ggplot(aes(meanT, meanF, color = dayOfSample)) +
+    geom_point() +
+    facet_wrap(~ year, scales = 'free')
+
 ```
 
 
@@ -310,6 +373,7 @@ ggplot(allFishBySpeciesYOY, aes(sampleNumber,nAllFishBySpeciesYOY)) +
 
 
 ```
+
 
 
 ```{r mean lengths}
@@ -627,99 +691,15 @@ ggplot(sensSlopesTidy, aes(ageInSamples, estimate, color = type)) +
 
 ```
 
-```{r dummy graphs for Spain talk}
 
-sizesForGraph <- data.frame(year = c(2000,2015), surv = c(100, 150))
-ggplot(sizesForGraph, aes(year,surv)) +
-  geom_line(size = 2) +
-  labs(x = 'Year', y = 'Mean body length (mm)') +
-  ylim(80,200) +
-  theme_publication(base_size = 36)
-ggsave('./figures/sizesDummy.png', width = 11, height = 11, units='in')
-
-
-survForGraph <- data.frame(size = c(-2,2), surv = c(0.25,0.75))
-ggplot(survForGraph, aes(size,surv)) +
-  geom_line(size = 2) +
-  labs(x = 'Standardized length', y = 'Probability of seen again') +
-  theme_publication(base_size = 36)
-ggsave('./figures/pSurvivalDummy.png', width = 11, height = 11, units='in')
-
-firstForGraph <- data.frame(size = c(-2,2), surv = c(0.35,0.65))
-ggplot(firstForGraph, aes(size,surv)) +
-  geom_line(size = 2) +
-  labs(x = 'Standardized length', y = 'Probability of first observation') +
-  theme_publication(base_size = 36)
-ggsave('./figures/pFirstDummy.png', width = 11, height = 11, units='in')
-
-
-sizesForGraph <- data.frame(year = c(2000,2015), surv = c(100, 150))
-ggplot(sizesForGraph, aes(year,surv)) +
-  geom_line(size = 3) +
-  labs(x = 'Year', y = 'Mean body length (mm)') +
-  ylim(80,200) +
-  theme_publication(base_size = 36)
-ggsave('./figures/sizesDummy.png', width = 11, height = 11, units='in')
-
-#### show interactions
-
-survForGraph <- data.frame(ind = c(1,1,2,2,3,3), size = c(-2,2), surv = c(0.52,0.55,0.51,0.24,0.54,0.82))
-ggplot(survForGraph, aes(size,surv, group = ind)) +
-  geom_line(size = 2) +
-  labs(x = 'Standardized length', y = 'Probability of seen again') +
-  theme_publication(base_size = 36)
-ggsave('./figures/pSurvivalDummy3.png', width = 11, height = 11, units='in')
-
-firstForGraph <- data.frame(ind = c(1,1,2,2,3,3), size = c(-2,2), surv = c(0.42,0.45,0.41,0.14,0.44,0.72))
-ggplot(firstForGraph, aes(size,surv, group = ind)) +
-  geom_line(size = 2) +
-  labs(x = 'Standardized length', y = 'Probability of first observation') +
-  theme_publication(base_size = 36)
-ggsave('./figures/pFirstDummy3.png', width = 11, height = 11, units='in')
-
-
-
-```
-
-```{r get betas from growth model for sensitivities}
-load("D:/projects/linkedModels/data/out/allBetas.RData") #loads df 'q'
-qFig1 <- q %>% filter(riverGG == 'WB', species %in% c('bkt','bnt'))
-qFig1$season <- as.numeric(as.character(qFig1$season))
-qFig1$isYOY <- as.numeric(as.character(qFig1$isYOY))
-qFig <- qFig1 %>%
-  mutate(varText = tolower(betaGG)) %>%
-  mutate(varText = ifelse(varText == 'temp*flow','temp:flow', varText)) %>%
-  mutate(varText = ifelse(varText == 'bnt*bkt','bkt:bnt', varText)) %>%
-  select(isYOY,season,species,median,varText)
-qFig$seasonGG <- factor(qFig$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
-#get slopes of env variables
-
-load('D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
-flowSlopesTidy2 <- flowSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'flow')
-load('D:/projects/linkedModels/data/out/tempSlopesTidy.RData')
-tempSlopesTidy2 <- tempSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'temp')
-load('D:/projects/linkedModels/data/out/nSlopesTidy.RData')
-nSlopesTidy2 <- nSlopesTidy %>% select(estimate, season, species) %>% mutate(varText = species)
-nSlopesTidy2$seasonGG <- factor(nSlopesTidy2$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
-nSlopesTidy2 <- nSlopesTidy2 %>% select(estimate,seasonGG,varText)
-
-allSlopesTidy <- bind_rows(nSlopesTidy2, tempSlopesTidy2, flowSlopesTidy2)
-
-allSlopesTidyWBetas <- left_join(qFig, allSlopesTidy, by = c('seasonGG', 'varText')) %>% mutate(sens = median * estimate)
-
-ggplot(allSlopesTidyWBetas%>%filter(!is.na(sens), varText != 'ats'), aes(seasonGG, sens, color = varText)) +
-  geom_point() +
-  facet_grid(species + isYOY ~ varText, scales = 'free')
-```
-
-
-```{r }
+```{r predicted em and 1st obs}
 ############# 1st attempt at imm em
 mod1 <- glm(notLastObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
-#mod2 <- glm(notLastObs*1 ~ observedLengthStd * factor(cohortStd) * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+mod2 <- glm(notLastObs*1 ~ (observedLengthStd + cohortStd + species + factor(ageInSamples))^2, family = 'binomial', data = cd01Mod)
 mod3 <- glm(notLastObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+mod4 <- glm(notLastObs*1 ~ (observedLengthStd + species + factor(ageInSamples))^2, family = 'binomial', data = cd01Mod)
 
-AIC(mod1,mod3)
+AIC(mod1,mod2,mod3,mod4) %>% arrange(AIC)
 
 summary(mod1)
 anova(mod1, test="Chi")
@@ -761,23 +741,23 @@ ggsave('./figures/pSurvival.png', width = 11, height = 11, units='in')
 ################################
 # gains - immigration, firstObs
 
-ggplot(cd01Mod, aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
-  geom_jitter(alpha = 0.1) +
-  geom_smooth(method = "glm", 
-              method.args = list(family = "binomial"), 
-              se = FALSE) +
-  # scale_color_viridis_c() +
-  xlim(c(-2.75,2.75)) +
-  facet_grid(ageInSamples ~ cohort)
-
-ggplot(cd01Mod%>%filter(ageInSamples == 3), aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
-  geom_jitter(alpha = 0.1) +
-  geom_smooth(method = "glm", 
-              method.args = list(family = "binomial"), 
-              se = FALSE) +
-  # scale_color_viridis_c() +
-  xlim(c(-2.75,2.75)) +
-  facet_wrap(~ cohort)
+# ggplot(cd01Mod, aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
+#   geom_jitter(alpha = 0.1) +
+#   geom_smooth(method = "glm", 
+#               method.args = list(family = "binomial"), 
+#               se = FALSE) +
+#   # scale_color_viridis_c() +
+#   xlim(c(-2.75,2.75)) +
+#   facet_grid(ageInSamples ~ cohort)
+# 
+# ggplot(cd01Mod%>%filter(ageInSamples == 3), aes(observedLengthStd, firstObs*1, color = factor(species), group = factor(species))) +
+#   geom_jitter(alpha = 0.1) +
+#   geom_smooth(method = "glm", 
+#               method.args = list(family = "binomial"), 
+#               se = FALSE) +
+#   # scale_color_viridis_c() +
+#   xlim(c(-2.75,2.75)) +
+#   facet_wrap(~ cohort)
 
 modi1 <- glm(firstObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
 modi2 <- glm(firstObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
@@ -830,6 +810,40 @@ ggplot(predi %>% filter(cohortStd %in% c(0), age < 3), aes(observedLengthStd, pr
 
 ggsave('./figures/pFirstObs.png', width = 11, height = 11, units='in')
 ```
+
+
+
+```{r get betas from growth model for sensitivities}
+load("D:/projects/linkedModels/data/out/allBetas.RData") #loads df 'q'
+qFig1 <- q %>% filter(riverGG == 'WB', species %in% c('bkt','bnt'))
+qFig1$season <- as.numeric(as.character(qFig1$season))
+qFig1$isYOY <- as.numeric(as.character(qFig1$isYOY))
+qFig <- qFig1 %>%
+  mutate(varText = tolower(betaGG)) %>%
+  mutate(varText = ifelse(varText == 'temp*flow','temp:flow', varText)) %>%
+  mutate(varText = ifelse(varText == 'bnt*bkt','bkt:bnt', varText)) %>%
+  select(isYOY,season,species,median,varText)
+qFig$seasonGG <- factor(qFig$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+#get slopes of env variables
+
+load('D:/projects/linkedModels/data/out/flowSlopesTidy.RData')
+flowSlopesTidy2 <- flowSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'flow')
+load('D:/projects/linkedModels/data/out/tempSlopesTidy.RData')
+tempSlopesTidy2 <- tempSlopesTidy %>% filter(riverOrderedGG == 'West Brook') %>% select(estimate, seasonGG) %>% mutate(varText = 'temp')
+load('D:/projects/linkedModels/data/out/nSlopesTidy.RData')
+nSlopesTidy2 <- nSlopesTidy %>% select(estimate, season, species) %>% mutate(varText = species)
+nSlopesTidy2$seasonGG <- factor(nSlopesTidy2$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+nSlopesTidy2 <- nSlopesTidy2 %>% select(estimate,seasonGG,varText)
+
+allSlopesTidy <- bind_rows(nSlopesTidy2, tempSlopesTidy2, flowSlopesTidy2)
+
+allSlopesTidyWBetas <- left_join(qFig, allSlopesTidy, by = c('seasonGG', 'varText')) %>% mutate(sens = median * estimate)
+
+ggplot(allSlopesTidyWBetas%>%filter(!is.na(sens), varText != 'ats'), aes(seasonGG, sens, color = varText)) +
+  geom_point() +
+  facet_grid(species + isYOY ~ varText, scales = 'free')
+```
+
 
 
 
