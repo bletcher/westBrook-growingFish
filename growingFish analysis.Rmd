@@ -23,6 +23,7 @@ library(GGally)
 # library(linkedModels)
 library(arrayhelpers)
 library(mgcv)
+library(lubridate)
 library(tidyverse)
 library(gridExtra)
 
@@ -194,10 +195,11 @@ d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
   #geom_line() +
   geom_errorbar( aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 ) ) +
   labs( x = "Year", y = "Stream temperature (C)" ) +
-  # geom_text(data=tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=17.5, label=paste(round(estimate,2),sig))) +
+  geom_text(data = tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=c(11, 17.5, 5, 2.7), label = paste(round(estimate,2),sig)), size = 4.5) +
+  scale_color_grey(start = 0, end = 0.7) +
   theme_publication(base_size = 24)
 
-ggsave('figures/tempNoFacet.png', width = 11, height = 7, units='in')
+ggsave('figures/tempNoFacet.png', width = 9, height = 7, units='in')
 
 save(tempSlopesTidy,file = 'D:/projects/westBrook-growingFish/data/out/tempSlopesTidy.RData')
 ```
@@ -222,6 +224,58 @@ envDataOutF <- envData %>%
 write.csv(envDataOutF, 'D:/projects/westBrook-growingFish/data/out/envDataF.csv')
 
 #Patterns in tse generally match figs 3,4 from above, but still is probably best to use envData for these graphs rather than means across individuals in d2 as above.
+
+# get data directly from database
+library(devtools)
+#devtools::install_github('Conte-Ecology/westBrookData/getWBData')
+library(getWBData)
+
+reconnect() 
+conDplyr # show tables
+
+temp0 <- as.data.frame(tbl(conDplyr, "data_daily_temperature")) 
+temp <-  temp0 %>%
+  filter(river == "west brook") %>%
+  mutate(doy = yday(as.POSIXct(date)),
+         year = year(as.POSIXct(date)),
+         season = case_when(doy <= 36 ~ 4,
+                            doy > 36 & doy <= 126 ~ 1,
+                            doy > 126 & doy <= 216 ~ 2,
+                            doy > 216 & doy <= 296 ~ 3,
+                            doy > 296 ~ 4)
+  )
+temp$seasonGG <- factor(temp$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+
+ggplot(temp, aes(doy,daily_mean_temp, group = seasonGG, color = seasonGG)) +
+  geom_smooth(method = 'lm', se=F) +
+  #geom_point(aes(shape = factor(seasonGG), size = 2)) +
+  geom_point(size = 3) +
+  #geom_line() +
+  labs( x = "Year", y = "Stream temperature (C)" ) +
+  scale_color_grey(start = 0, end = 0.7) +
+  theme_publication(base_size = 24) +
+  facet_wrap(seasonGG ~ year)
+
+
+tempByYear <- temp %>%
+  group_by(year, seasonGG) %>%
+  summarize(meanT = mean(daily_mean_temp, na.rm=T),
+            sdT = sd(daily_mean_temp, na.rm=T)) %>%
+  ungroup()
+
+ggplot(tempByYear, aes(year,meanT, group = seasonGG, color = seasonGG)) +
+  geom_smooth(method = 'lm', se=F) +
+  #geom_point(aes(shape = factor(seasonGG), size = 2)) +
+  geom_point(size = 3) +
+  #geom_line() +
+  geom_errorbar( aes(ymin = meanT - sdT, ymax = meanT + sdT, width = 0.33 ) ) +
+  labs( x = "Year", y = "Stream temperature (C)" ) +
+ # geom_text(data = tempSlopesTidy %>% filter(riverOrderedGG == "West Brook"),aes(x=2000.5,y=c(11, 17.5, 5, 2.7), label = paste(round(estimate,2),sig)), size = 4.5) +
+  scale_color_grey(start = 0, end = 0.7) +
+  theme_publication(base_size = 24)
+
+#ggsave('figures/tempNoFacet.png', width = 9, height = 7, units='in')
+
 ```
 
 
@@ -621,7 +675,7 @@ grSlopesTidy %>%
 
 ```
 
-```{r size-dep imm or mort? For Spain talk}
+```{r size-dep imm or mort?}
 
 ### for losses
 
@@ -760,12 +814,13 @@ ggsave('./figures/pSurvival.png', width = 11, height = 11, units='in')
 #   facet_wrap(~ cohort)
 
 modi1 <- glm(firstObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
+modi1a <- glm(firstObs*1 ~ (observedLengthStd + cohortStd + species + factor(ageInSamples))^2, family = 'binomial', data = cd01Mod)
 modi2 <- glm(firstObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
 modi3 <- glm(firstObs*1 ~ observedLengthStd * species , family = 'binomial', data = cd01Mod)
 modi4 <- glm(firstObs*1 ~ observedLengthStd * factor(ageInSamples), family = 'binomial', data = cd01Mod)
 modi5 <- glm(firstObs*1 ~ observedLengthStd, family = 'binomial', data = cd01Mod)
 
-AIC(modi1,modi2,modi3,modi4,modi5) %>% rownames_to_column() %>% arrange(AIC)
+AIC(modi1,modi1a,modi2,modi3,modi4,modi5) %>% rownames_to_column() %>% arrange(AIC)
 
 summary(modi1)
 anova(modi1, test="Chi")
