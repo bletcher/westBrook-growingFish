@@ -13,6 +13,10 @@ editor_options:
   
   Early analysis was in 'project/linkedModels/manuscriptAnalysis/MS_Analysis_3Spp_WB.Rmd' and a draft MS was 
   in 'D:\BEN\Manuscripts\2017 salmonid growth in wb/growth in the west brook_2spp_WB.doc'
+  
+  See 'linearGR_ModelsMap_BKT.R' for model selection code for the growth model
+
+Manuscript is saved on Teams in 'Keith_Ben MSs'. Open file there and edit on desktop.
 
 ```{r Load data, message=FALSE}
 library(itsadug)
@@ -522,14 +526,20 @@ ggsave('./figures/meanSizesAIS_1.png', width = 11, height = 8, units='in')
 
 # is a model with salmon presence absence better than a year model?
 means$ats01 <- ifelse(means$year <= 2005, 1, 0)
+means$yearCentered <- means$year - 2008
 
-modMeans1 = lm(meanLen ~ year * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
-modMeans2 = lm(meanLen ~ year * factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans1 = lm(meanLen ~ yearCentered * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+modMeans2 = lm(meanLen ~ yearCentered * factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
 modMeans3 = lm(meanLen ~ factor(ats01) * species, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
-modMeans4 = lm(meanLen ~ factor(ats01) * year, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
-AIC(modMeans1, modMeans2, modMeans3, modMeans4)
+modMeans4 = lm(meanLen ~ factor(ats01) * yearCentered, data = means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1))
+AIC(modMeans1, modMeans2, modMeans3, modMeans4) %>% arrange(AIC)
 
-# one season/year only
+summary(modMeans4)
+anova(modMeans4)
+
+summary(modMeans1)
+anova(modMeans1)
+# one season/yearCentered only
 ggplot(means %>% filter(year >= 2000, species != 'ats', ageInSamples == 1), aes(year,meanLen, group= speciesGG)) +
   geom_point(aes(color = speciesGG), size = 4) +
   geom_smooth(aes(group = factor(ats01)), color = 'black', se = FALSE, method = 'lm') +
@@ -746,14 +756,15 @@ ggplot(sensSlopesTidy, aes(ageInSamples, estimate, color = type)) +
 ```
 
 
-```{r predicted em and 1st obs}
+```{r predicted loss and 1st obs}
 ############# 1st attempt at imm em
 mod1 <- glm(notLastObs*1 ~ observedLengthStd * cohortStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
 mod2 <- glm(notLastObs*1 ~ (observedLengthStd + cohortStd + species + factor(ageInSamples))^2, family = 'binomial', data = cd01Mod)
 mod3 <- glm(notLastObs*1 ~ observedLengthStd * species * factor(ageInSamples), family = 'binomial', data = cd01Mod)
 mod4 <- glm(notLastObs*1 ~ (observedLengthStd + species + factor(ageInSamples))^2, family = 'binomial', data = cd01Mod)
+mod5 <- glm(notLastObs*1 ~ observedLengthStd * species, family = 'binomial', data = cd01Mod)
 
-AIC(mod1,mod2,mod3,mod4) %>% arrange(AIC)
+AIC(mod1,mod2,mod3,mod4,mod5) %>% arrange(AIC)
 
 summary(mod1)
 anova(mod1, test="Chi")
@@ -790,7 +801,23 @@ ggplot(pred %>% filter(cohortStd %in% 0, age < 3), aes(observedLengthStd, pred, 
 
 ggsave('./figures/pSurvival.png', width = 11, height = 11, units='in')
 
+#prob of last obs
+pred$pred1Minus <- 1 - pred$pred
 
+ggplot(pred %>% filter(cohortStd %in% 0, age < 3), aes(observedLengthStd, pred1Minus, color = speciesGG)) +
+  geom_point(size = 2) +
+  scale_x_continuous("Standardized length") +
+  scale_y_continuous(lim = c(0,1),"Probability of last observation") +
+  theme_publication(base_size = 28) +
+  theme(legend.title = element_text("Species"),
+        legend.position = "bottom",
+        legend.direction = "horizontal"
+  ) + 
+  labs(color='Species') +
+  scale_color_grey(start = 0.15, end = 0.75) +
+  facet_grid(seasonGG ~ age)
+
+ggsave('./figures/pLoss.png', width = 11, height = 11, units='in')
 
 ################################
 # gains - immigration, firstObs
@@ -899,6 +926,113 @@ ggplot(allSlopesTidyWBetas%>%filter(!is.na(sens), varText != 'ats'), aes(seasonG
   facet_grid(species + isYOY ~ varText, scales = 'free')
 ```
 
+```{r predicted lengths}
+# datafiles created in 'linkedModel_growthMS_Analysis_3spp_WB.Rmd'
+# contains dataframes: stats3Spp, grStats3Spp, elapsed, simData
+
+load('D:/projects/linkedModels/data/out/projectionOut_N100.RData')
+
+# bkt temp
+stats3Spp[['bkt']][[1]]$iter_temp <- paste(stats3Spp[['bkt']][[1]]$iter,stats3Spp[['bkt']][[1]]$temp,sep='_')
+tempLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter( temp %in% c(-1.5,1.5), flow %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
+
+segment_dataBKT = data.frame(
+    x = seq(1,10),
+    y = c(69,79,78,105,119,130,121,146,158,165), 
+    xend = seq(1,10),
+    yend = c(77,84,95,131,145,142,160,180,190,190)
+)
+
+ggplot(tempLoHiBKT, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(temp), group = iter_temp), alpha = 0.25) +
+  geom_segment(data = segment_dataBKT, aes(x=x,xend=xend,y=y,yend=yend), size = 2, color = 'black') +
+  theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  scale_color_manual(values = c('lightblue','red')) +
+  labs(color='Standardized temperature')
+
+ggsave('./figures/predLensTempBkt.png', width = 11, height = 9, units = 'in')
+
+# bkt flow
+stats3Spp[['bkt']][[1]]$iter_flow <- paste(stats3Spp[['bkt']][[1]]$iter,stats3Spp[['bkt']][[1]]$flow, sep='_')
+flowLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter( flow %in% c(-1.5,1.5), temp %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
+
+ggplot(flowLoHiBKT, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(flow), group = iter_flow), alpha = 0.25) +
+  geom_segment(data = segment_dataBKT, aes(x=x,xend=xend,y=y,yend=yend), size = 2, color = 'black') +
+  theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  scale_color_manual(values = c('lightblue','red')) +
+  labs(color='Standardized flow')
+
+ggsave('./figures/predLensFlowBkt.png', width = 11, height = 9, units = 'in')
+
+
+
+
+#bnt
+stats3Spp[['bnt']][[1]]$iter_temp <- paste(stats3Spp[['bnt']][[1]]$iter,stats3Spp[['bnt']][[1]]$temp,sep='_')
+tempLoHiBNT <- stats3Spp[['bnt']][[1]] %>% filter( temp %in% c(-1.5,1.5), flow %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
+
+segment_dataBNT = data.frame(
+    x = seq(1,10),
+    y = c(67,75,73,103,120,135,126,165,174,185), 
+    xend = seq(1,10),
+    yend = c(79,84,97,135,157,158,175,200,226,240)
+)
+
+ggplot(tempLoHiBNT, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(temp), group = iter_temp), alpha = 0.25) +
+  geom_segment(data = segment_dataBNT, aes(x=x,xend=xend,y=y,yend=yend), size = 2, color = 'black') +
+  theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  scale_color_manual(values = c('lightblue','red')) +
+  labs(color='Standardized temperature')
+
+ggsave('./figures/predLensTempBnt.png', width = 11, height = 9, units = 'in')
+
+# bnt flow
+stats3Spp[['bnt']][[1]]$iter_flow <- paste(stats3Spp[['bnt']][[1]]$iter,stats3Spp[['bnt']][[1]]$flow, sep='_')
+flowLoHiBnt <- stats3Spp[['bnt']][[1]] %>% filter( flow %in% c(-1.5,1.5), temp %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
+
+ggplot(flowLoHiBnt, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(flow), group = iter_flow), alpha = 0.25) +
+  geom_segment(data = segment_dataBNT, aes(x=x, xend=xend, y=y, yend=yend), size = 2, color = 'black') +
+  theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  scale_color_manual(values = c('lightblue','red')) +
+  labs(color='Standardized flow')
+
+ggsave('./figures/predLensFlowBnt.png', width = 11, height = 9, units = 'in')
+
+
+
+
+
+bktLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter(iter == 1, bkt %in% c(-1.5,1.5), temp %in% 0, flow %in% 0, bnt %in% 0, ats %in% 0)
+
+ggplot(bktLoHiBKT, aes(occ, lenMean, group = bkt)) +
+  geom_line() +
+  geom_segment(aes(x=x, xend=xend, y=y, yend=yend), size = 2, color = 'black', data = segment_dataBKT)
+
+bntLoHi <- stats3Spp[['bnt']][[1]] %>% filter(iter == 1, bnt %in% c(-1.5,1.5), temp %in% 0, flow %in% 0, bkt %in% 0, ats %in% 0)
+
+ggplot(bntLoHi, aes(occ,lenMean, group = bnt)) +
+  geom_line() +
+  geom_segment(x=4,xend=4,y=110,yend=135)
+
+atsLoHi <- stats3Spp[['bkt']][[1]] %>% filter(iter == 1, ats %in% c(-1.5,1.5), temp %in% 0, flow %in% 0, bkt %in% 0, bnt %in% 0)
+
+ggplot(atsLoHi, aes(occ,lenMean, color = factor(ats), group = ats)) +
+  geom_line() +
+  geom_segment(x=4,xend=4,y=110,yend=135)
+
+
+```
 
 
 
