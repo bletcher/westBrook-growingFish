@@ -208,6 +208,19 @@ ggsave('figures/tempNoFacet.png', width = 9, height = 7, units='in')
 save(tempSlopesTidy,file = 'D:/projects/westBrook-growingFish/data/out/tempSlopesTidy.RData')
 ```
 
+```{r output env data for Observable}
+
+envOut <- d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
+  filter(riverOrderedGG == "West Brook" ) %>%
+  summarize(meanF = mean(meanFlow, na.rm=T),
+            sdF = sd(meanFlow, na.rm=T),
+            meanT = mean(meanTemperature, na.rm=T),
+            sdT = sd(meanTemperature, na.rm=T))
+
+write.csv(envOut, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/envMeansOut.csv')
+```
+
+
 ```{r seasonal temp/flow for fixed seasonal window}
 # downloaded data file from osensei at '/home/projects/westbrook/dataIn/originalData/westbrook_core_environmental_data.csv'
 
@@ -432,6 +445,12 @@ ggplot(allFishBySpeciesYOY, aes(sampleNumber,nAllFishBySpeciesYOY)) +
 
 ```
 
+```{r n out for Observable}
+
+nOut <- allFishBySpeciesYOY %>% filter(riverOrderedGG == "West Brook", year >=2000)
+
+write.csv(nOut, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/nMeansOut.csv')
+```
 
 
 ```{r mean lengths}
@@ -684,6 +703,27 @@ grSlopesTidy %>%
 
 
 ```
+
+```{r mean lengths for Observable}
+
+means <- 
+  cd %>% mutate(age = year - cohort ) %>%
+  filter(riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016) %>%
+  group_by(species,ageInSamples,year,season,age) %>%
+  summarize(meanLen = mean(observedLength,na.rm = TRUE),
+            sdLen = sd(observedLength,na.rm = TRUE),
+            meanGR = mean(grLength,na.rm = TRUE),
+            sdGR = sd(grLength,na.rm = TRUE)
+  )
+
+means$seasonGG <- factor(means$season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+meansOut <- means %>% filter(year >= 2000)
+
+write.csv(meansOut, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/meanLengthsOut.csv')
+```
+
 
 ```{r size-dep imm or mort?}
 
