@@ -6,6 +6,7 @@ output:
 editor_options:
   chunk_output_type: console
 ---
+  test
   Code adapted from 'MS_Analysis_3spp_4rivers_Patterns_from 2spp_bySpp.Rmd' in the 'westBrook-patterns' project
   Ben did original analysis for this paper while at the 2019 ecology of stream fish meeting in Spain
   Clumsily added code in the westBrook-Patterns doc while at the meeting.
