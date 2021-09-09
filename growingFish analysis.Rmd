@@ -219,6 +219,25 @@ envOut <- d2 %>% group_by(riverOrderedGG,seasonGG,year) %>%
             sdT = sd(meanTemperature, na.rm=T))
 
 write.csv(envOut, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/envMeansOut.csv')
+
+# slopes and intercepts for env model
+tempForObs <- tempMods %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  filter(riverOrderedGG == "West Brook") %>%
+  select(seasonGG, term, estimate) %>%
+  mutate(var = "temp")
+
+flowForObs <- flowMods %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  filter(riverOrderedGG == "West Brook") %>%
+  select(seasonGG, term, estimate) %>%
+  mutate(var = "flow")
+
+write.csv(bind_rows(tempForObs, flowForObs), row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/envSlopesOut.csv')
 ```
 
 
@@ -451,6 +470,20 @@ ggplot(allFishBySpeciesYOY, aes(sampleNumber,nAllFishBySpeciesYOY)) +
 nOut <- allFishBySpeciesYOY %>% filter(riverOrderedGG == "West Brook", year >=2000)
 
 write.csv(nOut, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/nMeansOut.csv')
+
+nSlopesTidy2 <- nSlopes %>%
+  mutate(tidy = map(model,broom::tidy)) %>%
+  dplyr::select(-data,-model) %>%
+  unnest() %>%
+  #filter(riverOrderedGG == "West Brook") %>%
+  #select(seasonGG, term, estimate) %>%
+  mutate(var = "n")
+
+nSlopesTidy2$seasonGG <- factor(nSlopesTidy2$season, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)
+nSlopesTidy2$speciesGG <- factor(nSlopesTidy2$species, levels = c('bkt','bnt','ats'), labels = c("Brook Trout", "Brown Trout", "Atlantic Salmon"), ordered = T)
+
+write.csv(nSlopesTidy2 %>% select(species, season, seasonGG, term, estimate), row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/nSlopesOut.csv')
+
 ```
 
 
@@ -477,7 +510,7 @@ lengthModel <- function(df){
 }
 
 grModel <- function(df){
-  lm(meanGR ~ year, data = d )
+  lm(meanGR ~ year, data = df )
 }
 
 lenSlopes <- lenSlopes %>%
@@ -490,7 +523,7 @@ lenSlopesTidy <- lenSlopes %>%
   mutate(glance = map(model, broom::tidy)) %>% 
   #unnest(glance, .drop = TRUE) %>%
   unnest(glance) %>%
-  filter(term == 'year') %>%
+  #filter(term == 'year') %>%
   mutate(sig = ifelse(p.value < 0.05,"*","")) %>%
   mutate(sig = ifelse(p.value < 0.001,"**",sig)) %>%
   mutate(sig = ifelse(p.value < 0.0001,"***",sig))
@@ -506,14 +539,14 @@ ggplot(means %>% filter(year >= 2000, species != 'ats'), aes(year,meanLen, group
   geom_smooth(aes(color = speciesGG), se = FALSE, method = 'lm') +
   labs(x = "Year", y = "Mean body length (mm)" ) +
   
-  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age<2), 
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age<2, term == "year"), 
             aes(x=2000,y=225, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
-  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age<2), 
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age<2, term == "year"), 
             aes(x=2000,y=195, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
   
-  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age==2), 
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bkt', age==2, term == "year"), 
             aes(x=2011.8,y=104, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+#, color = speciesGG)) +
-  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age==2), 
+  geom_text(data = lenSlopesTidy %>% filter(species == 'bnt', age==2, term == "year"), 
             aes(x=2011.8,y=74, label=paste(round(estimate,2),sig)),hjust = 0, size = 6)+
   
   theme_publication(base_size = 24) +
@@ -723,6 +756,36 @@ means$speciesGG <- factor(means$species, levels = c('bkt','bnt','ats'), labels =
 meansOut <- means %>% filter(year >= 2000)
 
 write.csv(meansOut, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/meanLengthsOut.csv')
+
+# slopes and intercepts for size model
+write.csv(lenSlopesTidy %>% select(species, ageInSamples, season, age, term, estimate), row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/lenSlopesOut.csv')
+
+# overall means
+# input directly into Observable in the meanLengthDataFromR variable
+seasonalMeanLengths <- cd %>% mutate(age = year - cohort ) %>%
+  filter(riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016) %>%
+  group_by(species) %>%
+  summarize(meanLen = mean(observedLength,na.rm = TRUE),
+            sdLen = sd(observedLength,na.rm = TRUE),
+            meanGR = mean(grLength,na.rm = TRUE),
+            sdGR = sd(grLength,na.rm = TRUE)
+  )
+
+seasonalMeanSampleInterval <- cd %>% mutate(age = year - cohort ) %>%
+  filter(riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016) %>%
+  group_by(species, season) %>%
+  summarize(meanSampleInterval = mean(sampleInterval,na.rm = TRUE)) %>%
+  arrange(season)
+
+sampleIntervals <- cd %>% mutate(age = year - cohort ) %>%
+  filter(riverOrdered == 'west brook', ageInSamples %in% 1:10, age < 3, year < 2016, species != "ats") %>%
+  mutate(seasonGG = factor(season, levels = 1:4, labels = c("Spring","Summer","Autumn","Winter"), ordered = T)) %>%
+  group_by(year, seasonGG) %>%
+  summarize(meanSampleInterval = mean(sampleInterval,na.rm = TRUE)) %>%
+  arrange(year,seasonGG)
+  
+write.csv(sampleIntervals, row.names = FALSE, 'D:/projects/westBrook-growingFish/data/out/forObservable/sampleIntervals.csv')
+
 ```
 
 
@@ -975,6 +1038,7 @@ load('D:/projects/linkedModels/data/out/projectionOut_N100.RData')
 
 # bkt temp
 stats3Spp[['bkt']][[1]]$iter_temp <- paste(stats3Spp[['bkt']][[1]]$iter,stats3Spp[['bkt']][[1]]$temp,sep='_')
+
 tempLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter( temp %in% c(-1.5,1.5), flow %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
 
 segment_dataBKT = data.frame(
@@ -997,6 +1061,7 @@ ggsave('./figures/predLensTempBkt.png', width = 11, height = 9, units = 'in')
 
 # bkt flow
 stats3Spp[['bkt']][[1]]$iter_flow <- paste(stats3Spp[['bkt']][[1]]$iter,stats3Spp[['bkt']][[1]]$flow, sep='_')
+
 flowLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter( flow %in% c(-1.5,1.5), temp %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
 
 ggplot(flowLoHiBKT, aes(occ,lenMean)) +
@@ -1011,8 +1076,46 @@ ggplot(flowLoHiBKT, aes(occ,lenMean)) +
 ggsave('./figures/predLensFlowBkt.png', width = 11, height = 9, units = 'in')
 
 
+# bkt ATS
+stats3Spp[['bkt']][[1]]$iter_ats <- paste(stats3Spp[['bkt']][[1]]$iter,stats3Spp[['bkt']][[1]]$ats, sep='_')
+
+atsLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter( ats %in% c(-1.5,1.5), temp %in% 0, bkt %in% 0, bnt %in% 0, flow %in% 0)
+
+ggplot(atsLoHiBKT, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(ats), group = iter_ats), alpha = 0.25) +
+  geom_segment(data = segment_dataBKT, aes(x=x,xend=xend,y=y,yend=yend), size = 2, color = 'black') +
+  theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  scale_color_manual(values = c('lightblue','red')) +
+  labs(color='Standardized flow')
+
+ggsave('./figures/predLensATSBkt.png', width = 11, height = 9, units = 'in')
 
 
+# bkt temp AND ATS
+stats3Spp[['bkt']][[1]]$iter_temp_ats <- paste(stats3Spp[['bkt']][[1]]$iter,stats3Spp[['bkt']][[1]]$temp,stats3Spp[['bkt']][[1]]$ats, sep='_')
+
+stats3Spp[['bkt']][[1]]$temp_ats <- paste(stats3Spp[['bkt']][[1]]$temp,stats3Spp[['bkt']][[1]]$ats, sep='_')
+
+
+tempAtsLoHiBKT <- stats3Spp[['bkt']][[1]] %>% filter(ats %in% c(-1.5,1.5), temp %in% c(-1.5,1.5), bkt %in% 0, bnt %in% 0, flow %in% 0)
+
+ggplot(tempAtsLoHiBKT, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(temp), linetype=factor(ats), group = iter_temp_ats), alpha = 0.25) +
+  geom_segment(data = segment_dataBKT, aes(x=x,xend=xend,y=y,yend=yend), size = 2, color = 'black') +
+ # theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  facet_wrap(~ats)
+  #scale_color_manual(values = c('lightblue','red')) 
+  #  scale_color_discrete() +
+  #labs(color='Standardized flow')
+
+ggsave('./figures/predLensTempATSBkt.png', width = 11, height = 9, units = 'in')
+
+
+#####################
 #bnt
 stats3Spp[['bnt']][[1]]$iter_temp <- paste(stats3Spp[['bnt']][[1]]$iter,stats3Spp[['bnt']][[1]]$temp,sep='_')
 tempLoHiBNT <- stats3Spp[['bnt']][[1]] %>% filter( temp %in% c(-1.5,1.5), flow %in% 0, bkt %in% 0, bnt %in% 0, ats %in% 0)
@@ -1050,6 +1153,24 @@ ggplot(flowLoHiBnt, aes(occ,lenMean)) +
 
 ggsave('./figures/predLensFlowBnt.png', width = 11, height = 9, units = 'in')
 
+
+# bnt ATS
+stats3Spp[['bnt']][[1]]$iter_ats <- paste(stats3Spp[['bnt']][[1]]$iter,stats3Spp[['bnt']][[1]]$ats, sep='_')
+
+atsLoHiBNT <- stats3Spp[['bnt']][[1]] %>% filter( ats %in% c(-1.5,1.5), temp %in% 0, bkt %in% 0, bnt %in% 0, flow %in% 0)
+
+ggplot(atsLoHiBNT, aes(occ,lenMean)) +
+  geom_line(aes(color = factor(ats), group = iter_ats), alpha = 0.25) +
+  geom_segment(data = segment_dataBNT, aes(x=x,xend=xend,y=y,yend=yend), size = 2, color = 'black') +
+  theme_publication(base_size = 24) +
+  scale_x_discrete("Age/season", label = c('0/3','0/4','1/1','1/2','1/3','1/4','2/1','2/2','2/3','2/4')) +
+  scale_y_continuous("Predicted length (mm)") +
+  scale_color_manual(values = c('lightblue','red')) +
+  labs(color='Standardized flow')
+
+ggsave('./figures/predLensATSBnt.png', width = 11, height = 9, units = 'in')
+
+###############################
 
 
 
